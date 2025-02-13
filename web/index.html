@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ChatHub Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/5.0.11/signalr.min.js"></script>
+</head>
+<body>
+    <h1>ChatHub Test</h1>
+    <input type="text" id="user" placeholder="User" />
+    <input type="text" id="message" placeholder="Message" />
+    <button onclick="sendMessage()">Send</button>
+    <ul id="messagesList"></ul>
+
+    <script>
+        const connection = new signalR.HubConnectionBuilder()
+        .withUrl("http://localhost:5117/chathub", {
+            withCredentials: true
+        })
+        .build();
+
+        connection.on("ReceiveMessage", (user, message) => {
+            const li = document.createElement("li");
+            li.textContent = `${user}: ${message}`;
+            document.getElementById("messagesList").appendChild(li);
+        });
+
+        connection.start().catch(err => console.error(err.toString()));
+
+        function sendMessage() {
+            const user = document.getElementById("user").value;
+            const message = document.getElementById("message").value;
+            connection.invoke("SendMessage", user, message).catch(err => console.error(err.toString()));
+        }
+
+
+        function sendRequest()
+        {
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", "http://localhost:5117/api/Auth/register", true);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState == 4 && xhr.status == 200) {
+                    console.log(xhr.responseText);
+                    console.log("request successful");
+                }
+            }
+            xhr.send();
+        }
+        sendRequest();
+    </script>
+</body>
+</html>
