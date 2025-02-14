@@ -3,6 +3,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using server.AppDataContext;
@@ -57,6 +58,20 @@ namespace server.Controllers
 
         var token = tokenHandler.CreateToken(tokenDescriptor);
         return Ok(new { token = tokenHandler.WriteToken(token) });
+    }
+
+    [Authorize]
+    [HttpGet("users")]
+    public IActionResult GetUsers()
+    {
+        var users = _context.Users.Select(u => new { u.Username }).ToList();
+
+        //filter out the current user
+        var username = User.Identity?.Name;
+        users = users.Where(u => u.Username != username).ToList();
+
+        
+        return Ok(users);
     }
 }
 }

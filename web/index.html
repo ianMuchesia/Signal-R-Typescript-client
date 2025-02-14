@@ -1,51 +1,79 @@
-<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>ChatHub Test</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/5.0.11/signalr.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <script>
+        async function handleLogin() {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            
+            try {
+                const response = await fetch("http://localhost:5117/api/auth/login", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        username,
+                        passwordHash: password,
+                        id:0
+                    })
+                });
+              const data = await response.json();
+
+                if (!response.ok) {
+                    console.log("error found");
+                    throw new Error(data.message);
+                }
+
+                console.log(data);
+
+                localStorage.setItem("userToken", data.token);
+                localStorage.setItem("username", username);
+
+                window.location.href = "users.html";
+            } catch (err) {
+                console.error("Login failed", err);
+            }
+        }
+
+        async function handleRegister() {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            
+            try {
+                const response = await fetch("http://localhost:5117/api/auth/register", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        username,
+                        passwordHash: password,
+                        id:0
+                    })
+                });
+              const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message);
+                }
+
+                localStorage.setItem("token", data.token);
+
+                window.location.href = "users.html";
+            } catch (err) {
+                console.error("Login failed", err);
+            }
+        }
+    </script>
 </head>
 <body>
-    <h1>ChatHub Test</h1>
-    <input type="text" id="user" placeholder="User" />
-    <input type="text" id="message" placeholder="Message" />
-    <button onclick="sendMessage()">Send</button>
-    <ul id="messagesList"></ul>
-
-    <script>
-        const connection = new signalR.HubConnectionBuilder()
-        .withUrl("http://localhost:5117/chathub", {
-            withCredentials: true
-        })
-        .build();
-
-        connection.on("ReceiveMessage", (user, message) => {
-            const li = document.createElement("li");
-            li.textContent = `${user}: ${message}`;
-            document.getElementById("messagesList").appendChild(li);
-        });
-
-        connection.start().catch(err => console.error(err.toString()));
-
-        function sendMessage() {
-            const user = document.getElementById("user").value;
-            const message = document.getElementById("message").value;
-            connection.invoke("SendMessage", user, message).catch(err => console.error(err.toString()));
-        }
-
-
-        function sendRequest()
-        {
-            var xhr = new XMLHttpRequest();
-            xhr.open("POST", "http://localhost:5117/api/Auth/register", true);
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState == 4 && xhr.status == 200) {
-                    console.log(xhr.responseText);
-                    console.log("request successful");
-                }
-            }
-            xhr.send();
-        }
-        sendRequest();
-    </script>
+    <h2>Login</h2>
+    <input type="text" id="username" placeholder="Username" />
+    <input type="password" id="password" placeholder="Password" />
+    <button onclick="handleLogin()">Login</button>
+    <button onclick="handleRegister()">Register</button>
 </body>
 </html>

@@ -4,6 +4,7 @@ using server.AppDataContext;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using server.Models;
+using System.Collections.Concurrent;
 
 namespace server.Hubs
 {
@@ -14,6 +15,9 @@ namespace server.Hubs
         private readonly ILogger<ChatHub> _logger;
 
         private static readonly Dictionary<string, string> _userConnections = new Dictionary<string, string>();
+
+        private static readonly ConcurrentDictionary<string, string> _userConnections2 = new ConcurrentDictionary<string, string>();
+
 
 
         public ChatHub(ChatDBContext context, ILogger<ChatHub> logger)
@@ -73,45 +77,115 @@ namespace server.Hubs
         }
 
 
+
+
+
         public override async Task OnConnectedAsync()
         {
             var username = Context.User?.Identity?.Name;
             if (!string.IsNullOrEmpty(username))
             {
-                _userConnections[username] = Context.ConnectionId;
+                _userConnections2.TryAdd(username, Context.ConnectionId);
+                _logger.LogInformation($"User {username} connected with connection id {Context.ConnectionId}");
             }
             await base.OnConnectedAsync();
         }
 
-        public override async Task OnDisconnectedAsync(Exception exception)
+        public async Task SendPrivateMessage(int conversationId, string message)
         {
-            var username = _userConnections.FirstOrDefault(x => x.Value == Context.ConnectionId).Key;
-            if (username != null)
+            _logger.LogInformation($"Attempting to send message in conversation {conversationId}");
+
+            var senderUsername = Context.User?.Identity?.Name;
+            _logger.LogInformation($"Sender username from context: {senderUsername}");
+
+            if (string.IsNullOrEmpty(senderUsername))
             {
-                _userConnections.Remove(username);
+                _logger.LogError("Authorization failed: username is null or empty");
+                throw new HubException("Unauthorized");
             }
-            await base.OnDisconnectedAsync(exception);
+
+            try
+            {
+                _logger.LogInformation($"Fetching conversation with ID {conversationId}");
+                var conversation = await _context.Conversations
+                    .Include(c => c.User1)
+                    .Include(c => c.User2)
+                    .FirstOrDefaultAsync(c => c.Id == conversationId);
+
+                if (conversation == null)
+                {
+                    _logger.LogError($"Conversation {conversationId} not found");
+                    throw new HubException("Conversation not found");
+                }
+
+                _logger.LogInformation($"Found conversation between {conversation.User1.Username} and {conversation.User2.Username}");
+
+                _logger.LogInformation($"Fetching sender details for {senderUsername}");
+                var sender = await _context.Users.FirstAsync(u => u.Username == senderUsername);
+                _logger.LogInformation($"Found sender with ID {sender.Id}");
+
+                if (conversation.User1Id != sender.Id && conversation.User2Id != sender.Id)
+                {
+                    _logger.LogError($"User {senderUsername} not authorized for conversation {conversationId}");
+                    throw new HubException("Not authorized to send message in this conversation");
+                }
+
+                var newMessage = new Message
+                {
+                    ConversationId = conversationId,
+                    SenderId = sender.Id,
+                    Content = message,
+                    Timestamp = DateTime.UtcNow
+                };
+
+                _logger.LogInformation($"Saving new message from {senderUsername} in conversation {conversationId}");
+                _context.Messages.Add(newMessage);
+                await _context.SaveChangesAsync();
+
+                // Broadcast to both users
+                var user1 = conversation.User1.Username;
+                var user2 = conversation.User2.Username;
+
+                _logger.LogInformation($"Current active connections: {string.Join(", ", _userConnections2.Keys)}");
+
+                if (_userConnections2.TryGetValue(user1, out var user1ConnectionId))
+                {
+                    _logger.LogInformation($"Sending message to {user1} with connection ID {user1ConnectionId}");
+                    await Clients.Client(user1ConnectionId)
+                        .SendAsync("ReceivePrivateMessage", conversationId, sender.Username, message);
+                }
+                else
+                {
+                    _logger.LogWarning($"User {user1} is not connected");
+                }
+
+                if (_userConnections2.TryGetValue(user2, out var user2ConnectionId))
+                {
+                    _logger.LogInformation($"Sending message to {user2} with connection ID {user2ConnectionId}");
+                    await Clients.Client(user2ConnectionId)
+                        .SendAsync("ReceivePrivateMessage", conversationId, sender.Username, message);
+                }
+                else
+                {
+                    _logger.LogWarning($"User {user2} is not connected");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error processing message in conversation {conversationId}");
+                throw new HubException($"Failed to send message: {ex.Message}");
+            }
         }
 
-        public async Task SendPrivateMessage(string receiver, string message)
+        public override async Task OnDisconnectedAsync(Exception exception)
         {
-            var sender = Context?.User?.Identity?.Name;
-
-            if (_userConnections.TryGetValue(receiver, out var receiverConnectionId))
+            var username = Context.User?.Identity?.Name;
+            if (!string.IsNullOrEmpty(username))
             {
-                await Clients.Client(receiverConnectionId).SendAsync("ReceivePrivateMessage", sender, message);
+                _userConnections2.TryRemove(username, out _);
+                _logger.LogInformation($"User {username} disconnected");
             }
-
-            var newMessage = new Message
-            {
-                Content = message,
-                SenderId = _context.Users.First(u => u.Username == sender).Id,
-                ReceiverId = _context.Users.First(u => u.Username == receiver).Id,
-                Timestamp = DateTime.UtcNow
-            };
-
-            _context.Messages.Add(newMessage);
-            _context.SaveChanges();
+            await base.OnDisconnectedAsync(exception);
         }
     }
 

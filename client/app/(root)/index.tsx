@@ -14,6 +14,7 @@ const home= () => {
       const token = await login(username, password);
       console.log("JWT Token:", token);
       await AsyncStorage.setItem('userToken', token);
+      await AsyncStorage.setItem('username', username);
 
       router.push("/users");
     } catch (err:any) {

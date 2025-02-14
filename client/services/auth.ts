@@ -14,4 +14,9 @@ export const login = async (username:string, password:string) => {
   return token;
 };
 
+export const getUsers = async (token:string) => {
+  const res = await axios.get(`${API_URL}/users`, { headers: { Authorization: `Bearer ${token}` } });
+  return res.data;
+}
+
 //export const decodeToken = (token:string) => jwtDecode(token);

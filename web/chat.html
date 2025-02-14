@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #messagesList { 
+            height: 400px; 
+            overflow-y: auto; 
+            border: 1px solid #ccc; 
+            padding: 10px; 
+            margin-bottom: 10px;
+        }
+        .message {
+            margin: 5px;
+            padding: 8px;
+            border-radius: 10px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+        .sent {
+            background-color: #007bff;
+            color: white;
+            align-self: flex-end;
+        }
+        .received {
+            background-color: #e9ecef;
+            align-self: flex-start;
+        }
+        .message-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            margin: 5px 0;
+        }
+        .sent-container {
+            align-items: flex-end;
+        }
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+        input {
+            flex: 1;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Chat #<span id="conversationId"></span></h2>
+    <div id="chat">
+        <div id="messagesList"></div>
+        <div class="chat-input">
+            <input type="text" id="message" placeholder="Type a message...">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let connection = null;
+        let messages = [];
+        let conversationId = null;
+        const API_URL = "http://localhost:5117/api/chat"; // Update if needed
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            const token = localStorage.getItem("userToken");
+            conversationId = localStorage.getItem("conversationId");
+            currentUser = localStorage.getItem("username");
+
+            if (!token || !conversationId || !currentUser) {
+                alert("Unauthorized! Redirecting...");
+                window.location.href = "index.html";
+                return;
+            }
+
+            document.getElementById("conversationId").textContent = conversationId;
+
+            try {
+                connection = new signalR.HubConnectionBuilder()
+                    .withUrl("http://localhost:5117/chathub", {
+                        accessTokenFactory: () => token
+                    })
+                    .withAutomaticReconnect()
+                    .configureLogging(signalR.LogLevel.Information)
+                    .build();
+
+                connection.on("ReceivePrivateMessage", (chatId, sender, message) => {
+                    if (chatId.toString() !== conversationId) return;
+                    displayMessage({
+                        _id: Math.random().toString(),
+                        text: message,
+                        user: { _id: sender }
+                    });
+                });
+
+                await connection.start();
+                console.log("Connected to SignalR");
+                fetchChatHistory();
+            } catch (error) {
+                console.error("Connection failed:", error);
+                alert("Failed to connect.");
+            }
+        });
+
+        async function fetchChatHistory() {
+            try {
+                const token = localStorage.getItem("userToken");
+                const response = await axios.get(`${API_URL}/conversations/${conversationId}/messages`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
+                messages = response.data.map(msg => ({
+                    _id: msg.id.toString(),
+                    text: msg.content,
+                    user: { _id: msg.senderUsername }
+                }));
+
+                displayMessages();
+            } catch (error) {
+                console.error("Error fetching chat history:", error);
+            }
+        }
+
+        function displayMessages() {
+            document.getElementById("messagesList").innerHTML = "";
+            messages.forEach(displayMessage);
+        }
+
+        function displayMessage(msg) {
+            const messagesList = document.getElementById("messagesList");
+            const div = document.createElement("div");
+            div.className = `message-container ${msg.user._id === currentUser ? 'sent-container' : ''}`;
+            
+            const messageDiv = document.createElement("div");
+            messageDiv.className = `message ${msg.user._id === currentUser ? 'sent' : 'received'}`;
+            messageDiv.textContent = msg.text;
+            
+            div.appendChild(messageDiv);
+            messagesList.appendChild(div);
+            messagesList.scrollTop = messagesList.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const messageInput = document.getElementById("message");
+            const text = messageInput.value.trim();
+
+            if (text && connection) {
+                try {
+                    await connection.invoke("SendPrivateMessage", parseInt(conversationId), text);
+                    displayMessage({
+                        _id: Math.random().toString(),
+                        text,
+                        user: { _id: currentUser }
+                    });
+                    messageInput.value = "";
+                } catch (error) {
+                    console.error("Failed to send message:", error);
+                }
+            }
+        }
+
+        document.getElementById("message").addEventListener("keypress", (e) => {
+            if (e.key === "Enter") sendMessage();
+        });
+    </script>
+</body>
+</html>
